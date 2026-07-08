@@ -30,11 +30,12 @@ class Keystore2PrivateGrantClientTest {
         assertEquals(1, constants.domainGrant)
         assertEquals(0x100, constants.permissionUse)
         assertEquals(0x4, constants.permissionGetInfo)
+        assertEquals(0x80, constants.permissionUpdate)
         assertEquals(0x104, constants.grantAccessVector)
         assertEquals(0x100, constants.permissionUse)
         assertEquals(2, constants.transactionGetKeyEntry)
-        assertEquals(7, constants.transactionGrant)
-        assertEquals(8, constants.transactionUngrant)
+        assertEquals(6, constants.transactionGrant)
+        assertEquals(7, constants.transactionUngrant)
     }
 
     @Test

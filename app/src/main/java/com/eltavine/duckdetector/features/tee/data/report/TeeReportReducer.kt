@@ -403,6 +403,19 @@ class TeeReportReducer(
                     )
                 }
 
+                GrantSelfDomainAnomalyKind.SELF_GRANT_ATTESTATION_APP_KEY_NOT_FOUND -> {
+                    add(
+                        fact(
+                            "Grant self-domain",
+                            "Grant self-domain custom-attestation visibility divergence detected. " +
+                                grantSelfDomainFullChainSplitValue(artifacts),
+                            TeeSignalLevel.FAIL,
+                            hiddenCopyText = artifacts.grantSelfDomainFullChainSplit.diagnosticCopyText
+                                .takeIf { it.isNotBlank() },
+                        )
+                    )
+                }
+
                 GrantSelfDomainAnomalyKind.NONE,
                 GrantSelfDomainAnomalyKind.UNAVAILABLE -> Unit
             }
@@ -688,11 +701,11 @@ class TeeReportReducer(
                     )
                 )
             }
-            if (artifacts.updateSubcomponent.keyNotFoundStyleFailure) {
+            if (artifacts.updateSubcomponent.keyNotFoundStyleFailure || grantUpdateSubcomponentFailed(artifacts)) {
                 add(
                     fact(
                         "Update path",
-                        "setKeyEntry() failed with a key-not-found style response.",
+                        updateSubcomponentFailureSummary(artifacts),
                         TeeSignalLevel.FAIL
                     )
                 )
@@ -1176,7 +1189,7 @@ class TeeReportReducer(
                         fact(
                             "Update path",
                             updateSubcomponentValue(artifacts),
-                            if (artifacts.updateSubcomponent.keyNotFoundStyleFailure) TeeSignalLevel.FAIL else TeeSignalLevel.PASS
+                            updateSubcomponentLevel(artifacts)
                         )
                     )
                     add(
@@ -1959,6 +1972,15 @@ class TeeReportReducer(
     private fun grantSelfDomainFullChainSplitValue(artifacts: TeeScanArtifacts): String {
         val result = artifacts.grantSelfDomainFullChainSplit
         return when {
+            result.anomalyKind == GrantSelfDomainAnomalyKind.SELF_GRANT_ATTESTATION_APP_KEY_NOT_FOUND ->
+                buildString {
+                    append("Matched")
+                    append(" kind=")
+                    append(result.anomalyKind.name)
+                    if (result.grantIdPresent) append(" grantId=true")
+                    result.detail.takeIf { it.isNotBlank() }?.let { append(" • $it") }
+                }
+
             result.executed && result.splitDetected -> buildString {
                 append("Matched")
                 append(" kind=")
@@ -2051,11 +2073,47 @@ class TeeReportReducer(
     }
 
     private fun updateSubcomponentValue(artifacts: TeeScanArtifacts): String {
-        return when {
+        val base = when {
             artifacts.updateSubcomponent.keyNotFoundStyleFailure -> "Key-not-found style failure"
             artifacts.updateSubcomponent.updateSucceeded -> "No anomaly"
             else -> "Unexpected failure"
         }
+        val grant = grantUpdateSubcomponentValue(artifacts)
+        return if (grant == "Skipped") base else "$base • Grant $grant"
+    }
+
+    private fun grantUpdateSubcomponentValue(artifacts: TeeScanArtifacts): String {
+        val crypto = artifacts.keyMintCapability.crypto
+        return when {
+            !artifacts.keyMintCapability.executed || !crypto.grantUpdateSubcomponentExecuted -> "Skipped"
+            crypto.grantUpdateSubcomponentOk -> "ok"
+            else -> "failed: ${crypto.grantUpdateSubcomponentDetail}"
+        }
+    }
+
+    private fun updateSubcomponentFailureSummary(artifacts: TeeScanArtifacts): String {
+        val failures = buildList {
+            if (artifacts.updateSubcomponent.keyNotFoundStyleFailure) {
+                add("setKeyEntry() failed with a key-not-found style response")
+            }
+            if (grantUpdateSubcomponentFailed(artifacts)) {
+                add("Domain.GRANT updateSubcomponent did not round-trip cert/chain metadata")
+            }
+        }
+        return failures.joinToString("; ") + "."
+    }
+
+    private fun grantUpdateSubcomponentFailed(artifacts: TeeScanArtifacts): Boolean {
+        val crypto = artifacts.keyMintCapability.crypto
+        return artifacts.keyMintCapability.executed &&
+            crypto.grantUpdateSubcomponentExecuted &&
+            !crypto.grantUpdateSubcomponentOk
+    }
+
+    private fun updateSubcomponentLevel(artifacts: TeeScanArtifacts): TeeSignalLevel = when {
+        artifacts.updateSubcomponent.keyNotFoundStyleFailure || grantUpdateSubcomponentFailed(artifacts) ->
+            TeeSignalLevel.FAIL
+        else -> TeeSignalLevel.PASS
     }
 
     private fun updateSubcomponentStaleResponsePersistenceValue(artifacts: TeeScanArtifacts): String {
@@ -2334,7 +2392,8 @@ class TeeReportReducer(
             // Same-UID key-not-found is not ordinary unavailability: the owner alias was proven readable before grant.
             // 同 UID key-not-found 不是普通不可用：grant 之前 owner alias 已被证明可读。
             result.anomalyKind == GrantSelfDomainAnomalyKind.SELF_CHAIN_SPLIT ||
-                result.anomalyKind == GrantSelfDomainAnomalyKind.SELF_GRANT_KEY_NOT_FOUND_AFTER_OWNER_CHAIN -> {
+                result.anomalyKind == GrantSelfDomainAnomalyKind.SELF_GRANT_KEY_NOT_FOUND_AFTER_OWNER_CHAIN ||
+                result.anomalyKind == GrantSelfDomainAnomalyKind.SELF_GRANT_ATTESTATION_APP_KEY_NOT_FOUND -> {
                 TeeSignalLevel.FAIL
             }
             result.executed && result.available -> TeeSignalLevel.PASS
