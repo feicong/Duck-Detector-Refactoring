@@ -48,6 +48,7 @@ class SoterCapabilityProbe internal constructor(
             signSessionAvailable = result.signSessionOk,
             errorMessage = result.uiSummary,
             abnormalEnvironment = result.abnormalEnvironment,
+            backendAvailable = result.backendAvailable,
         )
     }
 
@@ -61,6 +62,7 @@ class SoterCapabilityProbe internal constructor(
         var askPreExisted = true
         var keyPrepareOk = false
         var signSessionOk = false
+        var backendAvailable = true
         var summary = "Soter probe did not complete."
 
         try {
@@ -91,7 +93,8 @@ class SoterCapabilityProbe internal constructor(
                 val prepareState = prepareKeyLikeWechat(testAlias)
                 askPreExisted = prepareState.askPreExisted
                 keyPrepareOk = prepareState.keyPrepareOk
-                summary += ", keyPrep ask=${prepareState.askOk}, askModel=${prepareState.askModelPresent}, auth=${prepareState.authOk}, hasAuth=${prepareState.authPresent}, authModel=${prepareState.authModelPresent}, retries=${prepareState.retryCount}, finalErr=${prepareState.finalErrCode}"
+                backendAvailable = !prepareState.backendUnavailable
+                summary += ", backendAvailable=$backendAvailable, keyPrep ask=${prepareState.askOk}, askModel=${prepareState.askModelPresent}, auth=${prepareState.authOk}, hasAuth=${prepareState.authPresent}, authModel=${prepareState.authModelPresent}, retries=${prepareState.retryCount}, finalErr=${prepareState.finalErrCode}"
             } catch (throwable: Throwable) {
                 summary += ", keyPrep=${throwable.javaClass.simpleName}"
             }
@@ -138,12 +141,13 @@ class SoterCapabilityProbe internal constructor(
         }
         summary += ", cleanup removeAuth=$removeAuthOk, removeAsk=$removeAskOk, removeAskSkipped=$removeAskSkipped"
 
-        val initServiceOk = nativeSupport && trebleConnected
+        val initServiceOk = nativeSupport && trebleConnected && backendAvailable
         return ProbeResult(
             initServiceOk = initServiceOk,
             keyPrepareOk = keyPrepareOk,
             signSessionOk = signSessionOk,
             abnormalEnvironment = environment.abnormalEnvironment,
+            backendAvailable = backendAvailable,
             uiSummary = summary,
         )
     }
@@ -163,7 +167,12 @@ class SoterCapabilityProbe internal constructor(
 
             var askExists = runCatching { client.hasAppGlobalSecureKey() }.getOrDefault(false)
             if (!askExists) {
-                val askResult = runCatching { client.generateAppGlobalSecureKey() }.getOrNull()
+                val askAttempt = runCatching { client.generateAppGlobalSecureKey() }
+                val askResult = askAttempt.getOrNull()
+                state.askGenerateAttemptCount++
+                if (askResult == null) {
+                    state.nullAskGenerateResultCount++
+                }
                 askExists = askResult?.isSuccess() == true
                 if (askExists) {
                     state.askGeneratedByProbe = true
@@ -225,13 +234,19 @@ class SoterCapabilityProbe internal constructor(
         var retryCount: Int = 0,
         var finalErrCode: Int = 0,
         var finalErrMsg: String = "ok",
-    )
+        var askGenerateAttemptCount: Int = 0,
+        var nullAskGenerateResultCount: Int = 0,
+    ) {
+        val backendUnavailable: Boolean
+            get() = askGenerateAttemptCount > 0 && askGenerateAttemptCount == nullAskGenerateResultCount
+    }
 
     private class ProbeResult(
         val initServiceOk: Boolean,
         val keyPrepareOk: Boolean,
         val signSessionOk: Boolean,
         val abnormalEnvironment: Boolean,
+        val backendAvailable: Boolean,
         val uiSummary: String,
     )
 

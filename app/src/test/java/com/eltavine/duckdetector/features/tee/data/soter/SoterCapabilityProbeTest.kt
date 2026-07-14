@@ -146,6 +146,45 @@ class SoterCapabilityProbeTest {
         assertTrue(client.generateAskCalled)
         assertFalse(client.initSighCalled)
     }
+
+    @Test
+    fun `connected wrapper with absent backend is unavailable instead of damaged`() {
+        val client = FakeSoterClient(
+            nativeSupport = true,
+            coreType = SoterCore.IS_TREBLE,
+            trebleConnected = true,
+            askGenerateReturnsNull = true,
+        )
+
+        val state = SoterCapabilityProbe(client).inspect()
+
+        assertFalse(state.serviceReachable)
+        assertFalse(state.keyPrepared)
+        assertFalse(state.signSessionAvailable)
+        assertFalse(state.available)
+        assertFalse(state.damaged)
+        assertTrue(state.summary.contains("backend unavailable", ignoreCase = true))
+        assertTrue(client.generateAskCalled)
+        assertFalse(client.initSighCalled)
+    }
+
+    @Test
+    fun `connected wrapper whose backend call throws is unavailable instead of damaged`() {
+        val client = FakeSoterClient(
+            nativeSupport = true,
+            coreType = SoterCore.IS_TREBLE,
+            trebleConnected = true,
+            askGenerateThrows = true,
+        )
+
+        val state = SoterCapabilityProbe(client).inspect()
+
+        assertFalse(state.serviceReachable)
+        assertFalse(state.available)
+        assertFalse(state.damaged)
+        assertTrue(state.summary.contains("backend unavailable", ignoreCase = true))
+        assertTrue(client.generateAskCalled)
+    }
 }
 
 private class FakeSoterClient(
@@ -159,6 +198,8 @@ private class FakeSoterClient(
     private val hasAuth: Boolean = false,
     private val authModelPresent: Boolean = false,
     private val sessionResult: SoterSessionResult? = null,
+    private val askGenerateReturnsNull: Boolean = false,
+    private val askGenerateThrows: Boolean = false,
 ) : SoterClient {
 
     var initTrebleCalled = false
@@ -193,6 +234,8 @@ private class FakeSoterClient(
 
     override fun generateAppGlobalSecureKey(): SoterCoreResult? {
         generateAskCalled = true
+        if (askGenerateThrows) error("Soter backend call failed")
+        if (askGenerateReturnsNull) return null
         hasAsk = askGenerateSuccess
         return if (askGenerateSuccess) SoterCoreResult(0) else SoterCoreResult(6, "ask failed")
     }

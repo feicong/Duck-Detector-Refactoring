@@ -26,11 +26,13 @@ class SoterDamageEvaluator {
         signSessionAvailable: Boolean,
         errorMessage: String?,
         abnormalEnvironment: Boolean = false,
+        backendAvailable: Boolean = true,
     ): TeeSoterState {
         val available = serviceReachable && keyPrepared && signSessionAvailable
         val damaged = serviceReachable && !available
         val summary = when {
             available -> "Soter checks succeeded: Treble service was reachable and ASK/AuthKey/initSigh all succeeded."
+            !backendAvailable -> "Soter check skipped: vendor backend unavailable."
             abnormalEnvironment ->
                 "Abnormal Soter environment: Simplified Chinese locale on a likely Soter-supporting device, but PackageManager could not resolve com.tencent.soter.soterserver."
             !serviceReachable -> "Soter check skipped because the Treble service was not reachable."
